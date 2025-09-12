@@ -42,7 +42,7 @@ Several design choices were guided by League-specific realities:
 ---
 
 ## Inspiration
-After watching Rank 1 Streamer **Pentaless** climb from Iron to Challenger on Nunu—long considered a weak champion—I realized that precise, consistent decisions grounded in high-level concepts could carry even a hardstuck Iron player (bottom 10%) to meaningful improvement.
+After watching Rank 1 Streamer **Pentaless** climb from Iron to Challenger on Nunu, considered by the League Community to be one of the weakest champions in the game, I realized that precise, consistent decisions grounded in high-level concepts could carry even a hardstuck Iron player (bottom 10%) to meaningful improvement.
 
 ---
 
