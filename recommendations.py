@@ -40,6 +40,9 @@ ACTIONS = [
     "USE_HERALD","use_herald",
     # Utility
     "RESET_BUY","DEEP_VISION_SWEEP",
+    # Team pings to align with win-con
+    "PING_PRESS_SIDES","PING_GROUP_OBJECTIVE","PING_GROUP_BARON","PING_GROUP_MID",
+    "PING_POKE_SETUP","PING_LOOK_FOR_PICK","PING_SAFE_SCALE",
 ]
 
 def _phase_from_t(t: float) -> int:
@@ -226,6 +229,14 @@ def list_all_actions() -> List[str]:
 def rank_by_strategy(strategy: str, model, features_df: pd.DataFrame, ev_mapper=None) -> List[Tuple[str, float, str]]:
     row = features_df.iloc[0].to_dict()
     cand = action_candidates(row)
+    # Add win-con ping actions dynamically based on current wincon profile
+    try:
+        wincon_profile = os.getenv("WIN_CON_PROFILE", "balanced").lower()
+        extra = _wincon_ping_actions(wincon_profile)
+        if extra:
+            cand = list(dict.fromkeys(cand + extra))
+    except Exception:
+        pass
     base_p = 0.5
     if hasattr(model, "predict_proba"):
         try:
@@ -495,7 +506,7 @@ def _wincon_bias_for_action(profile: str, action: str, state: Dict[str, float]) 
     p = profile.lower()
     if p in ("balanced", "none", "", "neutral"):
         return 0.0
-    if p in ("split", "1-3-1", "1-4", "splitpush", "split-push"):
+    if p in ("split", "1-3-1", "131", "1-4", "splitpush", "split-push"):
         mode = "split"
     elif p in ("pick", "pickcomp", "pick-comp"):
         mode = "pick"
@@ -507,6 +518,14 @@ def _wincon_bias_for_action(profile: str, action: str, state: Dict[str, float]) 
         mode = "scaling"
     elif p in ("teamfight", "5v5", "team-fight"):
         mode = "teamfight"
+    elif p in ("poke",):
+        mode = "poke"
+    elif p in ("snowball", "stomp", "tempo-aggressive", "tempo"):
+        mode = "snowball"
+    elif p in ("soul",):
+        mode = "soul"
+    elif p in ("baron",):
+        mode = "baron"
     else:
         mode = "balanced"
 
@@ -554,4 +573,131 @@ def _wincon_bias_for_action(profile: str, action: str, state: Dict[str, float]) 
         if is_setup or is_take: bump += 0.008
         if is_press and "MID" in a: bump += 0.006
         if is_invade: bump -= 0.004
+    elif mode == "poke":
+        if is_press: bump += 0.010
+        if is_vision: bump += 0.008
+        if is_gank: bump += 0.004  # pick windows before siege
+        if is_join: bump -= 0.008
+        if is_invade: bump -= 0.006
+        if is_take and "DRAGON" in a: bump -= 0.004
+    elif mode == "snowball":
+        if is_gank: bump += 0.012
+        if is_invade: bump += 0.012
+        if is_take or is_press: bump += 0.010
+        if is_farm or is_reset: bump -= 0.008
+    elif mode == "soul":
+        if (is_setup or is_take) and "DRAGON" in a: bump += 0.014
+        if is_scuttle and "BOT" in a: bump += 0.006
+        if is_vision: bump += 0.006
+        if is_take and "BARON" in a: bump -= 0.004
+    elif mode == "baron":
+        if (is_setup or is_take) and "BARON" in a: bump += 0.014
+        if is_scuttle and "TOP" in a: bump += 0.006
+        if is_vision: bump += 0.006
+        if is_take and "DRAGON" in a: bump -= 0.004
     return bump
+
+def detect_wincon(state: Dict[str, float]) -> str:
+    """Heuristic win-con detection from current state/features.
+
+    Returns one of: 'split', 'pick', 'siege', 'objective', 'scaling', 'teamfight', 'balanced'
+    """
+    def _f(k, d=0.0):
+        try:
+            return float(state.get(k, d) or 0.0)
+        except Exception:
+            return d
+    t = _f("time_s", 0.0)
+    phase = _phase_from_t(t)
+    vision = _f("vision_delta", 0.0)
+    cc = _f("team_cc_ms_diff", 0.0)
+    ehp = _f("team_ehp_proxy_diff", 0.0)
+    off = _f("team_offense_power_diff", 0.0)
+    spread = _f("team_spread_std_diff", 0.0)
+    near_b = _f("near_baron_count_diff", 0.0)
+    near_d = _f("near_dragon_count_diff", 0.0)
+    baron_live = int(state.get("baron_live", 0))
+    dragon_live = int(state.get("dragon_live", 1))
+    skirm = int(state.get("skirmish_flag", 0))
+    top_item = _f("top_item_gold_diff", 0.0)
+    mid_item = _f("mid_item_gold_diff", 0.0)
+    # Champion tags (if provided by live features)
+    ally_split = _f("ally_split_count", 0.0)
+    ally_poke = _f("ally_poke_count", 0.0)
+    ally_engage = _f("ally_engage_count", 0.0)
+    # Teamfight: high CC/EHP edge and late game or active skirmish or engage-heavy comp
+    if (cc > 500 or (cc > 200 and ehp > 0) or ally_engage >= 2) and (phase >= 4 or skirm):
+        return "teamfight"
+    # Objective: many allies near river objective, vision OK, objective live
+    if (baron_live and near_b > 0 and vision >= 0) or (dragon_live and near_d > 0 and vision >= 0):
+        return "objective"
+    # Soul: if dragon advantage is large late mid-game
+    try:
+        dd_cum = _f("dragon_diff_cum", 0.0)
+    except Exception:
+        dd_cum = 0.0
+    if dd_cum >= 2 and phase >= 3:
+        return "soul"
+    # Baron: if many allies top river late
+    if baron_live and near_b > 0 and phase >= 4 and vision >= 0:
+        return "baron"
+    # Split: strong side advantage and spread suggests side pressure, or comp has split champs
+    if ((top_item > 800 or mid_item > 800) and spread > 1500 and phase >= 3) or ally_split >= 2:
+        return "split"
+    # Siege: vision lead, no skirmish, pushing towers makes sense
+    if vision >= 1 and skirm == 0 and phase in (2,3,4):
+        return "siege"
+    # Pick: CC lead and vision but no skirmish, or comp has poke/pick
+    if (cc > 0 and vision >= 0 and skirm == 0) or ally_poke >= 2:
+        return "pick"
+    # Scaling: behind on offense and ehp early/mid
+    if off < 0 and ehp < 0 and phase <= 3:
+        return "scaling"
+    return "balanced"
+
+def _wincon_ping_actions(wincon: str) -> List[str]:
+    w = (wincon or "balanced").lower()
+    if w in ("split", "1-3-1", "131", "1-4"):
+        return ["PING_PRESS_SIDES"]
+    if w in ("objective", "soul", "baron"):
+        return ["PING_GROUP_OBJECTIVE"] if w == "objective" else (["PING_GROUP_BARON"] if w == "baron" else ["PING_GROUP_OBJECTIVE"])
+    if w in ("teamfight",):
+        return ["PING_GROUP_MID"]
+    if w in ("poke",):
+        return ["PING_POKE_SETUP"]
+    if w in ("pick",):
+        return ["PING_LOOK_FOR_PICK"]
+    if w in ("scaling",):
+        return ["PING_SAFE_SCALE"]
+    return []
+
+def _wincon_ping_score(action: str, state: Dict[str, float]) -> float:
+    def _f(k, d=0.0):
+        try:
+            return float(state.get(k, d) or 0.0)
+        except Exception:
+            return d
+    t = _f("time_s", 0.0)
+    phase = _phase_from_t(t)
+    vision = _f("vision_delta", 0.0)
+    near_b = _f("near_baron_count_diff", 0.0)
+    near_d = _f("near_dragon_count_diff", 0.0)
+    baron_live = int(state.get("baron_live", 0))
+    dragon_live = int(state.get("dragon_live", 1))
+    spread = _f("team_spread_std_diff", 0.0)
+    # Contextual pings: small nudges to surface callouts
+    if action == "PING_PRESS_SIDES":
+        return 0.010 if spread < 1000 and phase >= 3 else 0.004
+    if action == "PING_GROUP_OBJECTIVE":
+        return 0.012 if (dragon_live and near_d <= 0) or (baron_live and near_b <= 0) else 0.004
+    if action == "PING_GROUP_BARON":
+        return 0.014 if baron_live and near_b <= 0 and vision >= 0 else 0.004
+    if action == "PING_GROUP_MID":
+        return 0.010 if phase >= 4 else 0.004
+    if action == "PING_POKE_SETUP":
+        return 0.010 if vision >= 0 and phase in (2,3,4) else 0.002
+    if action == "PING_LOOK_FOR_PICK":
+        return 0.010 if vision >= 0 and phase in (2,3) else 0.002
+    if action == "PING_SAFE_SCALE":
+        return 0.012 if phase <= 3 and vision < 0 else 0.004
+    return 0.0
