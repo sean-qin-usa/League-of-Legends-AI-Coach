@@ -62,7 +62,7 @@ By contrast, **non-supervised reinforcement models** averaged ~50% accuracy, ref
 
 ## Recommended Model Borda Weightings
 
-To optimize Jungle Coach performance per elo, the following adjustments are recommended (with the option to choose win condition directly).
+To optimize Jungle Coach performance per elo, the following adjustments, toggleable within cells, are recommended (with the option to choose win condition directly).
 
 ---
 
