@@ -129,8 +129,6 @@ Masters+	Aggression bias, low γ	- Classifier outputs trusted more heavily
 - Playstyle clusters favor tempo-aggressive  
 - Behavioral cloning aligns with Challenger replays
 
-**GitHub-ready table (added for readability, same content):**
-
 | Elo         | Utility Adjustment     | ML Enforcement Mechanism                                                                 |
 |-------------|------------------------|------------------------------------------------------------------------------------------|
 | Iron–Gold   | Farm bias, higher γ    | - Down-weight gank classifiers <br> - Regressors favor farm/objectives <br> - Q-learning punishes failed aggression <br> - Playstyle clusters favor safe scaling |
