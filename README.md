@@ -50,8 +50,8 @@ After watching a Rank 1 Challenger streamer climb from Iron to Challenger on Nun
 Exclusively using the League Coach AI in live games I was able to achieve over a **70% win rate over 60 games**, climbing from Iron I to Gold IV, over 9 divisions and jumping from the bottom 10% of players in North America to the top 30%.  
 
 During testing by friends in various ELOs:  
-- **High elo:** Masters → Challenger (by a Challenger-level player) → **90%+ win rate**  
-- **Mid elo:** Platinum → Diamond (by a Challenger-level player)  
+- **High elo:** Masters → Challenger (by a Challenger-level player) → **75%+ win rate**  
+- **Mid elo:** Platinum → Diamond (by a Challenger-level player) → **90%+ win rate** 
 - **Low elo:** Iron → Gold (by an Iron-level player) → **100% win rate**  
 
 Training yielded **accuracy above 80%** compared to high-elo decisions when trained on 300+ games using supervised learning and offline RL models. Although Challenger decisions represent the best players, there is still a major skill gap between the top 10 and bottom of Challenger. Overfitting risks were mitigated with larger samples across multiple comps and rank brackets.  
