@@ -238,7 +238,8 @@ def rank_by_strategy(strategy: str, model, features_df: pd.DataFrame, ev_mapper=
     except Exception:
         pass
     base_p = 0.5
-    if hasattr(model, "predict_proba"):
+    # Strategy-specific base probability definition
+    if strategy in ("classification", "rl_awr", "rf", "linear_cv", "stacking") and hasattr(model, "predict_proba"):
         try:
             base_p = float(model.predict_proba(features_df)[:,1][0])
         except Exception:
@@ -248,6 +249,32 @@ def rank_by_strategy(strategy: str, model, features_df: pd.DataFrame, ev_mapper=
             ev = model.predict(features_df)[0].reshape(1, -1)
             base_p = float(ev_mapper.predict_proba(ev)[:,1][0])
         except Exception:
+            base_p = 0.5
+    elif strategy in ("imitation", "il_bc"):
+        # For imitation, model may be a dict with {'model','label_encoder'} or a pipeline with predict_proba over classes
+        try:
+            # unwrap if saved as dict
+            _m = model.get("model") if isinstance(model, dict) and "model" in model else model
+            _le = model.get("label_encoder") if isinstance(model, dict) else None
+            proba = _m.predict_proba(features_df)[0]
+            # Build ranking directly from class probabilities mapped to action labels
+            if _le is not None:
+                classes = list(_le.classes_)
+            else:
+                # Fallback: assume ACTIONS order
+                classes = list(ACTIONS)
+            # Map only to candidate actions
+            idx_map = {a:i for i,a in enumerate(classes)}
+            ranked_il: List[Tuple[str, float, str]] = []
+            for a in cand:
+                i = idx_map.get(a)
+                if i is None or i >= len(proba):
+                    continue
+                ranked_il.append((a, float(proba[i]), "il"))
+            ranked_il.sort(key=lambda x: x[1], reverse=True)
+            return ranked_il
+        except Exception:
+            # If anything fails, fall back to generic scoring flow below
             base_p = 0.5
 
     t = float(row.get("time_s",0))
@@ -267,6 +294,18 @@ def rank_by_strategy(strategy: str, model, features_df: pd.DataFrame, ev_mapper=
     ranked = []
     # ELO profile bias (env ELO_PROFILE or default 'balanced')
     elo_profile = os.getenv("ELO_PROFILE", "balanced").lower()
+    # Archetype bias
+    try:
+        from util.archetypes import archetype_label, archetype_bias
+        arc = archetype_label(row)
+    except Exception:
+        arc = -1
+    # Manifold (t-SNE/DBSCAN) bias
+    try:
+        from util.manifold_prior import manifold_label, manifold_bias
+        mlabel = manifold_label(row)
+    except Exception:
+        mlabel = -1
 
     for a in cand:
         score = base_p
@@ -384,6 +423,22 @@ def rank_by_strategy(strategy: str, model, features_df: pd.DataFrame, ev_mapper=
         if wb != 0:
             score += wb
             why.append(f"wincon:{wincon}")
+        # Apply archetype bias (if available)
+        try:
+            ab = archetype_bias(a, arc)
+            if ab != 0:
+                score += ab
+                why.append(f"arc:{arc}")
+        except Exception:
+            pass
+        # Apply manifold bias (if available)
+        try:
+            mb = manifold_bias(a, mlabel)
+            if mb != 0:
+                score += mb
+                why.append(f"m:{mlabel}")
+        except Exception:
+            pass
         ranked.append((a, float(score), "+".join(why) if why else ""))
 
     ranked.sort(key=lambda x: x[1], reverse=True)
