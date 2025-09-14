@@ -95,7 +95,7 @@ Standalone RL’s ~50% accuracy indicates RL is most effective as a **blended si
 ---
 
 ## Recommended Model Borda Weightings
-To optimize Jungle Coach performance per elo, the following adjustmentsadjustments, toggleable within cells, are recommended (with the option to choose win condition directly).
+To optimize Jungle Coach performance per elo, the following adjustments, toggleable within cells, are recommended (with the option to choose win condition directly).
 
 ### Low Elo (Iron–Gold) → Farm-Heavy, Safe Scaling
 - **Supervised:** Down-weight gank classifiers with higher γ; regressors for farm/objectives more influential.  
