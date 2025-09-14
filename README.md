@@ -16,17 +16,21 @@ Timelines were segmented into fixed-length windows, producing state–action tra
 
 To reduce dimensionality and improve generalization, **PCA / manifold embeddings** compressed high-dimensional vectors into compact state embeddings. Additionally, **k-means / density-based clustering** was applied to player and champion trajectories, producing playstyle archetypes (e.g., tempo ganker, power farmer) used as priors during action evaluation.
 
+> _Data & Pipeline (present in repo):_ API ingestion; leakage-safe feature engineering & state–action windowing; scaling/normalization; dimensionality reduction; playstyle archetypes; utility modeling; risk/uncertainty/guardrails; cross-validation & hyperparameter tuning.
+
 ---
 
 ## Machine Learning Methods
 The system integrated multiple ML paradigms:
 
-- **Supervised Learning:** Random Forest and XGBoost classifiers estimated probabilities of gank or objective success; Linear/Elastic Net and XGBoost regressors predicted changes in win probability, gold, or XP, with probability calibration (e.g., Platt/isotonic).  
-- **Unsupervised Learning:** PCA/manifold embeddings for feature reduction and k-means for playstyle profiling enhanced interpretability and modulated risk via priors.  
-- **Reinforcement Learning:** Tabular Q-learning prototypes and actor–critic variants explored value-based and policy-gradient approaches; exploration used ε-greedy/UCB under safety constraints.  
+- **Supervised Learning:** Random Forest and XGBoost classifiers estimated probabilities of gank or objective success; Linear/Elastic Net and XGBoost regressors predicted changes in win probability, gold, or XP, with probability calibration (e.g., Platt/isotonic) and cross-validation for model selection.  
+- **Unsupervised Learning:** PCA/manifold embeddings for feature reduction and k-means/density-based clustering for playstyle profiling enhanced interpretability and modulated risk via priors.  
+- **Reinforcement Learning (offline/batch):** Tabular Q-learning prototypes and actor–critic variants explored value-based and policy-gradient approaches; exploration used ε-greedy/UCB under safety constraints.  
 - **Imitation Learning:** Behavioral cloning trained models directly on Challenger+ replays, replicating expert jungler decisions without heavy reward shaping.  
 - **Meta-Learning (Lightweight):** Fast re-training pipelines on Masters+ subsets or single-champion datasets provided rapid adaptation across patches or role-specific contexts.  
-- **Decision Integration:** Model opinions were aggregated via stacking / weighted voting / Borda count; uncertainty penalties, risk flags, cooldown timers, and hard guardrails (e.g., smite availability, lane priority, soul/elder/baron windows) gated actions to maximize risk-adjusted utility and prevent oscillation.  
+- **Decision Integration (Ensembles):** Model opinions aggregated via stacking / weighted voting / Borda count; boosting/bagging where applicable; uncertainty penalties, risk flags, cooldown timers, and hard guardrails (e.g., smite availability, lane priority, soul/elder/baron windows) gated actions to maximize risk-adjusted utility and prevent oscillation.  
+
+> _Machine Learning (present in repo):_ Supervised (RF, XGBoost, Linear/Elastic Net w/ CV & calibration), Unsupervised (PCA, manifold methods; k-means, density-based), Reinforcement (offline/batch—Q-learning, actor–critic), Imitation (behavioral cloning), Meta-learning; **ensemble methods** (stacking, boosting, bagging); **strategy priors & win-condition inference**.
 
 ---
 
@@ -56,7 +60,7 @@ They improve interpretability, stability, and alignment with composition goals a
 - **Archetype priors** from unsupervised clustering and **manual profiles** (when configured)
 
 **Integration points.**
-- **Utility scaling:** `U_win(a) = U(a) × α_win(a | comp, state)` — boost actions that advance the current win condition; gently discount misaligned actions  
+- **Utility scaling:** `U_win(a) = U(a) × α_win(a | comp, state)` — boosts actions that advance the current win condition; gently discounts misaligned actions  
 - **Candidate action filtering/boosts:** prioritize side-lane pressure for 1-3-1; early dragons for objective stack; vision traps for pick  
 - **Guardrail adaptation:** stricter prio/smite checks for 5v5; side-vision requirements for split; lower tolerance for coin-flip invades on scaling comps  
 - **Tie-breakers:** prefer actions that meaningfully progress the inferred win condition (e.g., Herald→plates for split, grouping for teamfight)
@@ -82,6 +86,8 @@ Several design choices were guided by League-specific realities:
 
 ## Inspiration
 After watching Rank 1 Streamer **Pentaless** climb from Iron to Challenger on Nunu—long considered a weak champion—I realized that precise, consistent decisions grounded in high-level concepts could carry even a hardstuck Iron player (bottom 10%) to meaningful improvement.
+
+> _“The difference between Rank 1 and bottom of Challenger is greater than the difference from bottom of Challenger to Iron.” — Pentaless_
 
 ---
 
@@ -150,3 +156,8 @@ To optimize Jungle Coach performance per elo, the following adjustments—toggle
 
 ## Future Direction
 Future improvements may focus on integrating **large language models (LLMs)** to reduce rigidity and improve interpretability. LLMs can infer win conditions from drafts, adapt strategies to patch notes and meta shifts, and process multimodal inputs such as VODs or minimaps without hand-crafted features. Most importantly, they can provide **elo-specific, natural language explanations**, turning the coach from a decision engine into an **interactive teaching assistant** that adapts strategy and communication to the player’s level.
+
+---
+
+## About
+AI Jungle coach utilizing supervised learning, unsupervised learning, and offline reinforcement learning models to provide real-time recommended actions and warnings. Includes user toggle-able filters for training data, modeling/dynamic coaching strategies (or combinations via Borda weighting), and risk (also toggle-able by game state, game stage).
