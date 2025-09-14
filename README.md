@@ -22,7 +22,7 @@ To reduce dimensionality and improve generalization, **PCA / manifold embeddings
 ## Machine Learning Methods
 The system integrated multiple ML paradigms:
 
-- **Supervised Learning:** Random Forest and XGBoost classifiers estimated probabilities of gank or objective success; Linear/Elastic Net and XGBoost regressors predicted changes in win probability, gold, or XP, with probability calibration (e.g., Platt/isotonic) and cross-validation for thresholding/selection.  
+- **Supervised Learning:** XGBoost classifiers estimated probabilities of gank or objective success; Linear/Elastic Net and XGBoost regressors predicted changes in win probability, gold, or XP, with probability calibration (e.g., Platt/isotonic) and cross-validation for thresholding/selection.  
 - **Unsupervised Learning:** PCA/manifold embeddings for feature reduction and k-means/density-based clustering for playstyle profiling enhanced interpretability and modulated risk via priors.  
 - **Reinforcement Learning (offline/batch):** Tabular Q-learning prototypes and actor–critic variants explored value-based and policy-gradient approaches; exploration used ε-greedy/UCB under safety constraints.  
 - **Imitation Learning:** Behavioral cloning trained models directly on Challenger+ replays, replicating expert jungler decisions without heavy reward shaping.  
