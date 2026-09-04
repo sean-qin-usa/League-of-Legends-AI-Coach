@@ -62,3 +62,12 @@ The net effect is a coach that plays safe scaling in low elo, alternates between
 ## Future direction
 
 The main planned improvement is integrating LLMs to reduce rigidity and improve interpretability: inferring win conditions from drafts, adapting to patch notes and meta shifts, processing VODs or minimap frames without hand-crafted features, and above all giving elo-appropriate natural-language explanations, turning the coach from a decision engine into an interactive teaching assistant.
+
+## Layout
+
+```
+notebooks/   ingest+train pipeline and the live coach notebook
+src/         runtime modules (recommendations, riot_api, windows_builder, priors)
+training/    model training and retraining scripts
+models/      trained artifacts (ev_multi.joblib)
+```
