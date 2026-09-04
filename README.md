@@ -1,165 +1,64 @@
 # League-of-Legends-AI-Coach
 
-## Summary
-The jungle coach treats gameplay as an MDP and unifies multiple learning paradigms into a single decision system: supervised models for calibrated predictions, unsupervised methods for feature structuring and playstyle priors, reinforcement and imitation learning for dynamic policy shaping, and meta-learning for adaptability. Final choices use ensemble arbitration (stacking / weighted voting / Borda count) with uncertainty-aware gating and League-specific guardrails (prio/smite/objective timing), balancing high-elo discipline with practical, safe decision-making for broader applicability and sustained improvement.
+A real-time jungle coach that treats the game as an MDP and combines several learning paradigms in one decision system: supervised models for calibrated predictions, unsupervised methods for feature structure and playstyle priors, offline reinforcement and imitation learning for policy shaping, and lightweight meta-learning for patch adaptation. Final actions come from ensemble arbitration (stacking, weighted voting, or Borda count) gated by uncertainty penalties and League-specific guardrails such as lane priority, smite availability, and objective timing.
 
----
+## Data
 
-## Data Processing & Preparation
-Raw data was sourced from the Riot Games API, combining match metadata and timeline events into structured decision states. Each state vector included:
+Raw data comes from the Riot Games API, with match metadata and timeline events combined into structured decision states. Each state vector includes game metrics (team gold and XP leads, objective timers, camp respawns, tempo indices), player metrics (HP/mana, cooldowns, summoner spells, resources), map context (lane priority, champion proximity, vision and ward events, jungler tracking), and composition cues (champion tag counts such as split-push, poke, engage).
 
-- **Game metrics:** team gold and XP leads, objective timers, camp respawn times, tempo indices, etc.  
-- **Player metrics:** champion HP/mana, cooldowns, summoner spell readiness, resource checks, etc.  
-- **Map context:** lane priority, champion proximity, vision/ward events, jungler tracking, etc.  
-- **Composition cues:** champion tag counts (e.g., split-push, poke, engage) to inform composition-aware strategy priors.
+Timelines are segmented into fixed-length windows to produce state-action training samples. Features are scaled and normalized with leakage guards, and engineered metrics include gold per minute, jungle tempo indices, and vision-adjusted threat levels. PCA and manifold embeddings compress the high-dimensional vectors into compact state embeddings, and k-means and density-based clustering over player and champion trajectories produce playstyle archetypes (tempo ganker, power farmer, and so on) that serve as priors during action evaluation.
 
-Timelines were segmented into fixed-length windows, producing state–action training samples. Features were scaled and normalized with leakage guards, with engineered metrics such as gold per minute, jungle tempo indices, and vision-adjusted threat levels.
+## Models
 
-To reduce dimensionality and improve generalization, **PCA / manifold embeddings** compressed high-dimensional vectors into compact state embeddings. Additionally, **k-means / density-based clustering** was applied to player and champion trajectories, producing playstyle archetypes (e.g., tempo ganker, power farmer) used as priors during action evaluation.
+- Supervised: XGBoost classifiers estimate gank and objective success probabilities; linear/elastic-net and XGBoost regressors predict changes in win probability, gold, and XP, with Platt or isotonic calibration and cross-validation for thresholding.
+- Unsupervised: the PCA/manifold embeddings and clustering above, used both for dimensionality reduction and for risk-modulating playstyle priors.
+- Reinforcement learning (offline/batch): tabular Q-learning prototypes and actor-critic variants, with ε-greedy/UCB exploration under safety constraints.
+- Imitation learning: behavioral cloning on Challenger+ replays, replicating expert jungler decisions without heavy reward shaping.
+- Meta-learning: fast retraining pipelines on Masters+ subsets or single-champion datasets for adaptation across patches and roles.
+- Ensemble integration: model opinions are aggregated by stacking, weighted voting, or Borda count; uncertainty penalties, risk flags, cooldown timers, and hard guardrails (smite availability, lane priority, soul/elder/baron windows) gate the final action and prevent oscillation.
 
----
+## Strategy priors
 
-## Machine Learning Methods
-The system integrated multiple ML paradigms:
+Priors are pre-model weights over action types (gank, farm, invade, objective, ward/clear) that encode which plans a composition and context should prefer before exact outcomes are evaluated. They come from the playstyle archetypes, from champion composition tags mapped to win conditions (teamfight, split, pick, poke/siege, snowball, objective/soul), from an elo profile that tilts safe → balanced → proactive, and optionally from fixed manual profiles.
 
-- **Supervised Learning:** XGBoost classifiers estimated probabilities of gank or objective success; Linear/Elastic Net and XGBoost regressors predicted changes in win probability, gold, or XP, with probability calibration (e.g., Platt/isotonic) and cross-validation for thresholding/selection.  
-- **Unsupervised Learning:** PCA/manifold embeddings for feature reduction and k-means/density-based clustering for playstyle profiling enhanced interpretability and modulated risk via priors.  
-- **Reinforcement Learning (offline/batch):** Tabular Q-learning prototypes and actor–critic variants explored value-based and policy-gradient approaches; exploration used ε-greedy/UCB under safety constraints.  
-- **Imitation Learning:** Behavioral cloning trained models directly on Challenger+ replays, replicating expert jungler decisions without heavy reward shaping.  
-- **Meta-Learning (Lightweight):** Fast re-training pipelines on Masters+ subsets or single-champion datasets provided rapid adaptation across patches or role-specific contexts.  
-- **Decision Integration (Ensembles):** Model opinions were aggregated via stacking / weighted voting / Borda count; uncertainty penalties, risk flags, cooldown timers, and hard guardrails (e.g., smite availability, lane priority, soul/elder/baron windows) gated actions to maximize risk-adjusted utility and prevent oscillation.  
+In scoring, priors modulate utilities and tie-breaks without bypassing the safety rules:
 
----
+`U(a) = (EV(a) × α_prior(a)) − λ·uncertainty − γ·risk`
 
-## Strategy Priors (Overview)
-**What they are.**  
-Pre-model weights over action types (e.g., gank, farm, invade, objective, ward/clear) that encode which plans a team composition and context should prefer before evaluating exact outcomes.
+Plan-consistent actions are boosted and low-fit actions lightly down-weighted. A split-push comp steers toward Herald, plates, and side vision; a teamfight comp toward grouping and objectives; a pick comp toward vision traps, roams, and siege angles.
 
-**Sources.**
-- Playstyle archetypes (unsupervised): Clusters over historical trajectories (e.g., tempo-ganker, power-farmer) supply an archetype prior.  
-- Champion composition: Tags (e.g., engage, split, poke) map drafts to high-level win conditions (teamfight, split, pick, poke/siege, snowball, objective/soul).  
-- Elo profile: Safe → balanced → proactive tilts reflecting reliability by rank.  
-- Manual profiles: Fixed profiles can be configured when desired.
+## Win-condition inference
 
-**Use in scoring.**  
-Priors modulate utilities and tie-breaks without bypassing safety rules (prio, smite, objective windows):  
-`U(a) = (EV(a) × α_prior(a)) − λ·uncertainty − γ·risk`  
-Plan-consistent actions are boosted; low-fit actions are lightly down-weighted.
+The system infers a high-level win condition per game and phase: teamfight scaling, pick/skirmish, 1-3-1 split, siege/poke, early snowball, or objective stack. Signals include draft and composition tags, role synergies, lane priority and wave states, objective timers, item spikes, vision control, and the archetype priors. The inferred condition scales utilities (`U_win(a) = U(a) × α_win(a | comp, state)`), boosts or filters candidate actions (side-lane pressure for 1-3-1, early dragons for objective stack, vision traps for pick), adapts guardrails (stricter prio/smite checks for teamfight comps, side-vision requirements for split, lower tolerance for coin-flip invades on scaling comps), and breaks ties toward actions that advance the plan.
 
-**Why they help.**  
-They improve interpretability, stability, and alignment with composition goals and elo realities.  
-Examples: split-push → Herald/plates/side vision; teamfight → grouping/objectives; pick/poke → vision traps/roams/siege angles.
+## Design rationale
 
----
-
-## Win-Condition Inference
-**What it infers.**  
-High-level win conditions for each game (and phase) such as **teamfight scaling (5v5)**, **pick/skirmish**, **1-3-1 split-push**, **siege/poke**, **early snowball**, and **objective stack (soul/elder)**.
-
-**Signals used.**
-- Draft/composition tags (engage, peel, split, poke, hard CC, front-to-back), role synergies  
-- Lane priority & wave states, objective timers (Herald/Dragon/Baron), item spikes/levels, vision control, summoner cooldowns  
-- Archetype priors from unsupervised clustering and optional manual profiles
-
-**Integration points.**
-- **Utility scaling:** `U_win(a) = U(a) × α_win(a | comp, state)` — boost actions that advance the inferred win condition; softly discount misaligned ones  
-- **Candidate boosts/filters:** side-lane pressure for 1-3-1; early dragons for objective stack; vision traps/roams for pick  
-- **Guardrail adaptation:** stricter prio/smite checks for 5v5; side-vision requirements for split; lower tolerance for coin-flip invades on scaling comps  
-- **Tie-breakers:** prefer actions that progress the win-con (e.g., Herald→plates for split; grouping for teamfight)
-
-**Examples (non-exhaustive).**
-- **1-3-1 / Split:** Herald→plates, deep side-vision, cross-map trades  
-- **Pick/Skirmish:** sweeps/traps, 2v2–3v3 roams  
-- **Teamfight Scaling:** objective control on prio; avoid low-odds isolates  
-- **Objective Stack:** early dragon pathing; deny coin-flip contests
-
----
-
-## Rationale & Practicality in League Context
-Several design choices were guided by League-specific realities:
-
-- **Training on high-elo data for generalization:** Models were trained primarily on Masters+ and Challenger games, where strategies are disciplined and consistent. This yields cleaner decision patterns, even when applied in low-elo environments. The conservative bias (e.g., respecting lane prio before objectives) makes recommendations safe and generalizable.  
-- **Risk-aware action scoring:** Embedding uncertainty penalties and risk flags avoids overfitting to risky “coin-flip” plays. In practice, low-risk consistency beats occasional high-risk success.  
-- **Guardrails tied to competitive strategy:** Explicit rules around soul points, elder dragon, and baron windows mirror real-world priorities, ensuring the AI respects critical win conditions.  
-- **Playstyle archetype clustering:** Unsupervised priors modulate utilities based on whether a situation favors farm-scaling or tempo aggression, making outputs more intuitive to human players.  
-- **Meta-adaptation:** League is patch-driven. Lightweight retraining on filtered data (e.g., champion-specific updates) enables fast adaptability without rebuilding the whole pipeline.  
-
----
+Models are trained primarily on Masters+ and Challenger games, where strategy is disciplined and consistent; the resulting conservative bias (respecting lane priority before objectives, for example) keeps recommendations safe even in low-elo games. Uncertainty penalties and risk flags in the action scoring keep the coach away from coin-flip plays, since low-risk consistency beats occasional high-risk success. Hard rules around soul point, elder, and baron windows mirror how the game is actually decided. Playstyle clustering makes outputs more intuitive by matching the recommendation to whether the situation favors farm-scaling or tempo aggression. And because League is patch-driven, the lightweight retraining path (champion-specific or Masters+ subsets) adapts the system without rebuilding the pipeline.
 
 ## Inspiration
-After watching a Rank 1 Challenger streamer climb from Iron to Challenger on Nunu—long considered a weak champion—I realized that precise, consistent decisions grounded in high-level concepts could carry even a hardstuck Iron player (bottom 10%) to meaningful improvement.
 
-> “The difference between Rank 1 and bottom of Challenger is greater than the difference from bottom of Challenger to Iron.” — a Rank 1 Challenger streamer
+After watching a Rank 1 Challenger streamer climb from Iron to Challenger on Nunu, long considered a weak champion, I realized that precise, consistent decisions grounded in high-level concepts could carry even a hardstuck Iron player to real improvement.
 
----
+> "The difference between Rank 1 and bottom of Challenger is greater than the difference from bottom of Challenger to Iron." — a Rank 1 Challenger streamer
 
-## Results and Observations
-Exclusively using the League Coach AI in live games I was able to achieve over a **70% win rate over 60 games**, climbing from **Iron I → Gold IV**, over 9 divisions and jumping from the bottom 10% of players in North America to the top 30%.
+## Results
 
-During testing by friends in various ELOs:
-- **High elo:** Masters → Challenger (by *a Challenger-level player*) → **75%+ win rate**  
-- **Mid elo:** Platinum → Diamond (by *a Challenger-level player*) → **90%+ win rate**  
-- **Low elo:** Iron → Gold (by *an Iron-level player*) → **100% win rate**
+Using the coach exclusively in my own live games, I went 70%+ win rate over 60 games, climbing Iron I → Gold IV (9 divisions, roughly bottom 10% to top 30% of NA players). In testing by friends: a Challenger-level player took an account Masters → Challenger at a 75%+ win rate and another account Platinum → Diamond at 90%+, and an Iron-level player went Iron → Gold at 100%.
 
-Training yielded **accuracy above 80%** compared to high-elo decisions when trained on **300+ games** using supervised learning and offline RL models, with ablations across comps and rank brackets to mitigate overfitting.  
-By contrast, **non-supervised reinforcement models** averaged ~**50%** accuracy (mirroring symmetric match outcomes), making RL most useful as a **blended signal inside the ensemble**, rather than a solo driver.
+Supervised and offline-RL models trained on 300+ games reached over 80% accuracy against high-elo decisions, with ablations across comps and rank brackets to check for overfitting. Non-supervised reinforcement models averaged about 50% accuracy (mirroring symmetric match outcomes), which is why RL enters the ensemble as a blended signal rather than a solo driver.
 
----
+## Elo-specific weightings
 
-## Recommended Model Borda Weightings
-To optimize Jungle Coach performance per elo, the following adjustments—toggleable within cells—are recommended (with the option to choose win condition directly).
+The same high-elo-trained models are used at every elo; what changes is the utility weighting, priors, and penalties. The presets (toggleable per cell, with the option to pick a win condition directly):
 
-### Low Elo (Iron–Gold) → Farm-Heavy, Safe Scaling
-- **Supervised:** Down-weight aggressive gank classifiers; emphasize farm/objective regressors.  
-- **Unsupervised:** Power-farming clusters shift priors to safe plays.  
-- **Reinforcement Learning:** Q-values from failed ganks reinforce conservative bias.  
-- **Imitation Learning:** Challenger replay aggression softened with safety heuristics.  
+| Elo | Utility adjustment | Enforcement |
+|---|---|---|
+| Iron–Gold | farm bias, higher γ | gank classifiers down-weighted; regressors favor farm/objectives; Q-learning punishes failed aggression; clusters favor safe scaling |
+| Plat–Diamond | balanced weights | equal classifier/regressor weighting; clusters vary situationally; actor-critic adds opportunistic plays; cloning applied more directly |
+| Masters+ | aggression bias, lower γ | classifier outputs trusted more; regressors emphasize tempo gains; RL blended into utilities (η > 0); clusters favor tempo aggression; cloning aligns with Challenger replays |
 
-**Result:** Strong farm/objective bias; risky ganks discouraged unless confidence is very high.
+The net effect is a coach that plays safe scaling in low elo, alternates between farm and gank in mid elo depending on prio, vision, and jungler tracking, and plays proactive tempo in high elo with aggression still disciplined by the prio/smite guardrails.
 
----
+## Future direction
 
-### Mid Elo (Platinum–Diamond) → Balanced Playstyle
-- **Supervised:** Balanced weighting of classifiers vs. regressors.  
-- **Unsupervised:** Mixed clusters enable situational flexibility.  
-- **Reinforcement Learning:** Actor–critic loop allows exploratory, opportunistic plays.  
-- **Imitation Learning:** High-elo patterns applied more directly.  
-
-**Result:** Alternates between farm and gank depending on prio, vision, and jungler tracking.
-
----
-
-### High Elo (Masters+) → Tempo-Aggressive, Proactive
-- **Supervised:** Classifier confidence trusted more; regressors emphasize tempo swings.  
-- **Unsupervised:** Aggressive clusters amplify proactive plays.  
-- **Reinforcement Learning:** Q-learning and actor–critic blended (η > 0).  
-- **Imitation Learning:** Challenger+ replay cloning used directly.  
-
-**Result:** Proactive tempo strategy; aggression disciplined by prio/smite guardrails.
-
----
-
-## Elo → Utility Adjustment → ML Enforcement
-
-| Elo          | Utility Adjustment     | ML Enforcement Mechanism                                                                 |
-|--------------|------------------------|-------------------------------------------------------------------------------------------|
-| Iron–Gold    | Farm bias, higher γ    | - Down-weight gank classifiers <br> - Regressors favor farm/objectives <br> - Q-learning punishes failed aggression <br> - Playstyle clusters favor safe scaling |
-| Plat–Diamond | Balanced weights       | - Equal weighting of classifiers/regressors <br> - Playstyle clusters vary situationally <br> - Actor–critic adds opportunistic plays <br> - Behavioral cloning applied more directly |
-| Masters+     | Aggression bias, low γ | - Classifier outputs trusted more heavily <br> - Regression models emphasize tempo gains <br> - RL blended into utilities (η > 0) <br> - Playstyle clusters favor tempo-aggressive <br> - Behavioral cloning aligns with Challenger replays |
-
----
-
-## Recommended Model Key Takeaways
-- The same **high-elo–trained models** are used across all elos.  
-- Elo-specific strategies arise from **utility weighting, priors, and penalties**, not separate models.  
-- This yields strategies that are **safe in low elo, adaptive in mid elo, and proactive in high elo**, while staying grounded in disciplined, high-elo decision quality.  
-
----
-
-## Future Direction
-Future improvements may focus on integrating **large language models (LLMs)** to reduce rigidity and improve interpretability. LLMs can infer win conditions from drafts, adapt strategies to patch notes and meta shifts, and process multimodal inputs such as VODs or minimaps without hand-crafted features. Most importantly, they can provide **elo-specific, natural language explanations**, turning the coach from a decision engine into an **interactive teaching assistant** that adapts strategy and communication to the player’s level.
-
----
-
-## About
-AI Jungle coach utilizing supervised learning, unsupervised learning, and offline reinforcement learning models to provide real-time recommended actions and warnings. Includes user toggle-able filters for training data, modeling/dynamic coaching strategies (or combinations via Borda weighting), and risk (also toggle-able by game state, game stage).
+The main planned improvement is integrating LLMs to reduce rigidity and improve interpretability: inferring win conditions from drafts, adapting to patch notes and meta shifts, processing VODs or minimap frames without hand-crafted features, and above all giving elo-appropriate natural-language explanations, turning the coach from a decision engine into an interactive teaching assistant.
